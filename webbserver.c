@@ -20,18 +20,30 @@ int main()
     
     server_fd = socket(AF_INET, SOCK_STREAM, 0);
 
+    //nollar och initierar socket
     memset(&server_addr, 0, sizeof(server_addr));
     server_addr.sin_family = AF_INET;
     server_addr.sin_addr.s_addr = INADDR_ANY;
     server_addr.sin_port = htons(SERVER_PORT);
 
     int on = 1;
-    setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on));
+    if(setsockopt(server_fd, SOL_SOCKET, SO_REUSEADDR, (char *)&on, sizeof(on)) < 0)
+    {
+        perror("setsockopt failed");
+        exit(EXIT_FAILURE);
+    }
 
-    bind(server_fd, (struct sockaddr *)&server_addr , sizeof(server_addr));
-    listen(server_fd, QUEUE_SIZE);
+    if(bind(server_fd, (struct sockaddr *)&server_addr , sizeof(server_addr)) < 0)
+    {
+        perror("Bind failed");
+        exit(EXIT_FAILURE);
+    }
 
-    printf("Lyssnar på port 8080...\n");
+    if(listen(server_fd, QUEUE_SIZE) < 0)
+    {
+        perror("Listen failed");
+        exit(EXIT_FAILURE);
+    }
     
     while(1)
     {
@@ -52,13 +64,15 @@ int main()
         strcpy(path, "/index.html");
         }
         
-        sprintf(filepath, "sample_website%s" , path);
+        snprintf(filepath, sizeof(filepath), "sample_website%s" , path);
+        printf("path=%s  filepath=%s\n", path, filepath);
 
         fd = open(filepath, O_RDONLY);
     
         if(fd < 0)
         {
-            char not_found[] = "HTTP/1.1 404 Not Found\r\n\r\n";
+            perror("Could not open file");
+            char not_found[] = "HTTP/1.1 404 Not Found\r\n" "Content-Length: \r\n" "Content-Type: \r\n";
             write(client_fd, not_found, strlen(not_found));
         }
         else
@@ -66,8 +80,37 @@ int main()
             int file_size = lseek(fd, 0, SEEK_END);
             lseek(fd, 0 ,SEEK_SET);
 
+            // bestämmer vilken Content-Type
+            char *ext = strrchr(path, '.');
+            char *mime_type = "application/octet-stream";
+
+            if(ext != NULL)
+            {
+                if(strstr(ext, ".html"))
+                {
+                    mime_type = "text/html";
+                }
+                else if(strcmp(ext, ".jpeg") || strcmp(ext, ".jpg") == 0)
+                {
+                    mime_type = "image/jpeg";
+                }
+                else if(strcmp(ext, ".png"))
+                {
+                    mime_type = "image/png";
+                }
+                else if(strcmp(ext, ".css"))
+                {
+                    mime_type = "text/css";
+                }
+                else if(strcmp(ext, ".js"))
+                {
+                    mime_type = "application/javascript";
+                }
+            }
+
+
             char found[BUF_SIZE];
-            sprintf(found, "HTTP/1.1 200 OK\r\n" "Content-Length: %d\r\n" "Content-Type: \r\n\r\n" , file_size);
+            sprintf(found, "HTTP/1.1 200 OK\r\n" "Content-Length: %d\r\n" "Content-Type: %s\r\n\r\n" , file_size, mime_type);
             write(client_fd, found, strlen(found));
         
             while(1)
@@ -76,11 +119,12 @@ int main()
                 if(bytes <= 0) break;
                 write(client_fd, buffer, bytes);
             }
-            close(fd);
+                    close(fd);
         }
+        close(client_fd);
 
     }
-    close(client_fd);
+
     close(server_fd);
     return 0;
 
